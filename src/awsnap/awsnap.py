@@ -148,9 +148,26 @@ def export_temporary_aws_credentials(profile):
     secret_key = credentials.secret_key
     session_token = credentials.token
 
-    os.environ["AWS_ACCESS_KEY_ID"] = access_key
-    os.environ["AWS_SECRET_ACCESS_KEY"] = secret_key
-    os.environ["AWS_SESSION_TOKEN"] = session_token
+    credentials_path = Path.home() / ".aws" / "credentials"
+    config = configparser.ConfigParser()
+
+    # Read existing credentials if they exist
+    if credentials_path.exists():
+        config.read(credentials_path)
+
+    if "default" not in config.sections():
+        config.add_section("default")
+
+    config.set("default", "aws_access_key_id", access_key)
+    config.set("default", "aws_secret_access_key", secret_key)
+    config.set("default", "aws_session_token", session_token)
+
+    with open(credentials_path, "w") as f:
+        config.write(f)
+
+    logging.info(
+        "Temporary AWS credentials have been written to the default profile in ~/.aws/credentials"
+    )
 
 
 def run_shell_command(profile, command):
@@ -164,6 +181,9 @@ def main():
         description="AWSnap: AWS SSO Utility",
     )
     parser.add_argument("-p", "--profile", help="AWS profile name")
+    parser.add_argument(
+        "--console", action="store_true", help="Open AWS console"
+    )
     parser.add_argument(
         "-i",
         "--interactive",
@@ -183,9 +203,13 @@ def main():
     elif args.command:
         shell_command = " ".join(args.command)
         run_shell_command(args.profile, shell_command)
-    else:
-        sso_url = get_sso_url_from_profile(args.profile)
+    elif args.console:  # Open console when --console flag is used
+        sso_url, _ = get_sso_url_from_profile(args.profile)
         open_aws_console(args.profile, sso_url)
+    elif args.profile:  # Export credentials when --profile flag is used
+        export_temporary_aws_credentials(args.profile)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":
