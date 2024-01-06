@@ -10,7 +10,12 @@ import botocore.exceptions
 import configparser
 import cmd
 import logging
+
+from rich.console import Console
+
 from .pipeline.command_handler import handle_command
+
+console = Console()
 
 # from commands.config_command import handle_config_pipeline
 
@@ -74,6 +79,9 @@ def list_profiles():
     print("Available Profiles:")
     for profile in profiles:
         print(f"  - {profile}")
+    
+    #todo:
+    #sessions_path = Path.home() / ".aws" / "sso" / "cache"
 
 
 def open_aws_console(profile, sso_url):
@@ -139,10 +147,18 @@ def authenticate_sso(profile):
 
 def get_sso_url_from_profile(profile):
     config = configparser.ConfigParser()
-    config.read(f"{os.path.expanduser('~')}/.aws/config")
+    file_path = f"{os.path.expanduser('~')}/.aws/config"
+    config.read(file_path)
 
-    sso_session = config.get(f"profile {profile}", "sso_session")
-    sso_start_url = config.get(f"sso-session {sso_session}", "sso_start_url")
+    try:
+        sso_session = config.get(f"profile {profile}", "sso_session")
+        sso_start_url = config.get(f"sso-session {sso_session}", "sso_start_url")
+    except configparser.NoOptionError as err:
+        console.print("🚨 " + str(err) + " 🚨", style="bold red", highlight=False)
+        console.print(f"\t| 📢 | Check your file at: {file_path}", style="bold yellow")
+        console.print("\t| 📢 | ", style="bold yellow", end='')
+        console.print("https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html", style="bold yellow on blue")
+        exit(1)
     region = config.get(
         f"profile {profile}", "region", fallback=None
     )  # Fetching the region
@@ -154,16 +170,26 @@ def export_temporary_aws_credentials(profile):
     try:
         session = boto3.Session(profile_name=profile)
         credentials = session.get_credentials()
-        access_key = credentials.access_key
-        secret_key = credentials.secret_key
-        session_token = credentials.token
+        if credentials is None:
+            api_sts = boto3.client('sts')
+            response = api_sts.get_session_token()
+            credentials = response['Credentials']
+            access_key = credentials["AccessKeyId"]
+            secret_key = credentials["SecretAccessKey"]
+            session_token = credentials["SessionToken"]
+        else:
+            access_key = credentials.access_key
+            secret_key = credentials.secret_key
+            session_token = credentials.token
 
         credentials_path = Path.home() / ".aws" / "credentials"
         config = configparser.ConfigParser()
 
-        # Read existing credentials if they exist
-        if credentials_path.exists():
-            config.read(credentials_path)
+        # Read existing credentials if they exist, else create the file
+        if not credentials_path.exists():
+            credentials_path.touch()
+
+        config.read(credentials_path)
 
         if "default" not in config.sections():
             config.add_section("default")
@@ -180,7 +206,7 @@ def export_temporary_aws_credentials(profile):
         )
         return True  # Ensure to return True after successful execution
     except Exception as err:
-        logging.error(f"Failed to export temporary AWS credentials: {err}")
+        logging.exception(f"Failed to export temporary AWS credentials: {err}")
         return False
 
 

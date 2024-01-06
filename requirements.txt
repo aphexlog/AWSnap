@@ -21,3 +21,4 @@ smmap==5.0.1
 typeguard==2.13.3
 typing_extensions==4.9.0
 urllib3==1.26.16
+rich==13.7.0
